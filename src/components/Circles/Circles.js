@@ -1,5 +1,6 @@
 import React, {Component, Fragment} from 'react';
 import 'react-dom';
+import hamsters from 'hamsters.js';
 
 export default class Circles extends Component {
 
@@ -9,6 +10,7 @@ export default class Circles extends Component {
 			<Fragment>
 				<section className="circles">
 					<canvas id="canvas" className="circles__canvas"/>
+					<canvas id="canvasTemp" className="circles__canvas  isHidden" />
 				</section>
 			</Fragment>
 		)
@@ -24,15 +26,17 @@ class Generator {
 	constructor() {
 
 		this.canvas = document.getElementById('canvas');
+		this.canvasTmp = document.getElementById('canvasTemp');
 
 		this.ctx = this.canvas.getContext('2d');
+		this.ctx2 = this.canvasTmp.getContext('2d');
 		this.ctx.globalAlpha = 0.2;
 
 		this.canvasWidth = window.innerWidth;
 		this.canvasHeight = window.innerHeight;
 
-		this.canvas.width = this.canvasWidth;
-		this.canvas.height = this.canvasHeight;
+		this.canvas.width = this.canvasTmp.width = this.canvasWidth;
+		this.canvas.height= this.canvasTmp.height = this.canvasHeight;
 
 		this.circleLimit = 15; // Кол-во кругов
 		this.circlesArr = []; // Массив для отрисовки
@@ -40,12 +44,18 @@ class Generator {
 		this.textSize = 0;
 		this.textFont = `13vw Fugue, Helvetica, sans-serif`;
 		this.pinkColor = '#F20080';
-		this.blackColor = '#000000';
+		this.blackColor = 'rgba(0,0,0,0.9)';
 		this.grayColor = '#F4F4F4';
 		this.darkGrayColor = '#707070';
 		this.colorTheme = 'white';
 
-		this.init();
+		this.image = new Image();
+		this.image.src = "back.jpg";
+		this.image.onload = () => {
+			this.init();
+		};
+
+		this.ticker = 0;
 	}
 
 	// Основная секция приложения
@@ -58,17 +68,28 @@ class Generator {
 		// Сохраняем состояние холста
 		self.ctx.save();
 
-		// Запускаем отрисовку
+		hamsters.init({
+			cache: true,
+			memoize: true,
+			browser: true,
+			reactNative: false,
+			node: false
+		});
+
+		// Рисуем первоначальный фон
+		self.setBackground({withEffect: false});
+
+		// Запускаем отрисовку всей сцены в цикле
 		self.animLoop();
 
 		window.addEventListener('changeBackground', () => {
 
 			self.colorTheme = (self.colorTheme === "black") ? "white" : "black";
 
-			if(self.colorTheme === "black") {
-				this.blackColor = '#ffffff';
+			if (self.colorTheme === "black") {
+				this.blackColor = 'rgba(255,255,255,0.9)';
 			} else {
-				this.blackColor = '#000000';
+				this.blackColor = 'rgba(0,0,0,0.9)';
 			}
 
 		});
@@ -91,7 +112,7 @@ class Generator {
 				x: self.randomRange(circleSize, self.canvasWidth),
 				y: startPosition,
 				size: circleSize,
-				operation: (Math.random() > 0.9) ? "source-over" : "lighter",
+				operation: (Math.random() > 0.7) ? "source-over" : "xor" ,
 				killPosition: self.canvasHeight + circleSize,
 				speed: self.randomRange(1, maxSpeed)
 			};
@@ -138,17 +159,14 @@ class Generator {
 			x = 0,
 			y = 50,
 			size = 0,
-			color = self.blackColor
+			color = self.blackColor,
+			operation,
 		} = params;
 
 		self.ctx.beginPath();
 
+		self.ctx.globalCompositeOperation = operation;
 
-		if (!params.operation) {
-			params.operation = "lighter";
-		}
-
-		// self.ctx.globalCompositeOperation = params.operation;
 		self.ctx.lineWidth = 1;
 		self.ctx.fillStyle = color;
 		self.ctx.strokeStyle = color;
@@ -157,12 +175,12 @@ class Generator {
 		self.ctx.fill();
 		self.ctx.closePath();
 
-		// self.ctx.globalCompositeOperation = "source-over";
+		self.ctx.globalCompositeOperation = "source-over";
 
 	}
 
 	randomRange(min, max) {
-		return Math.random() * (max - min) + min;
+		return Math.round(Math.random() * (max - min) + min);
 	}
 
 	drawText(params = {}) {
@@ -194,6 +212,69 @@ class Generator {
 
 	}
 
+	setBackground(params = {}) {
+
+		const self = this;
+
+		const {
+			withEffect = true
+		} = params;
+
+		self.chromaticAberration(self.randomRange(20, 40), self.randomRange(0, 1), withEffect);
+	}
+
+	chromaticAberration(intensity, phase, withEffect) {
+
+		const self = this;
+
+
+		self.ctx2.drawImage(self.image, 0, 0, self.canvasWidth, self.canvasHeight);
+		/* Use canvas to draw the original image, and load pixel data by calling getImageData
+		The ImageData.data is an one-dimentional Uint8Array with all the color elements flattened. The array contains data in the sequence of [r,g,b,a,r,g,b,a...]
+		Because of the cross-origin issue, remember to run the demo in a localhost server or the getImageData call will throw error
+		*/
+		let imageData = self.ctx2.getImageData(0, 0, self.canvasWidth, self.canvasHeight);
+		let data = imageData.data;
+
+		if(withEffect) {
+			for (let i = phase % 4; i < data.length; i += 4) {
+				// Setting the start of the loop to a different integer will change the aberration color, but a start integer of 4n-1 will not work
+				data[i] = data[i + 4 * intensity];
+			}
+		}
+		self.ctx2.putImageData(imageData, 0, 0);
+
+		self.ctx.drawImage(self.canvasTmp, 0, 0);
+
+		/*
+		// Штука, которая создаёт паралельные потоки вычислений
+		let params = {
+			array: imageData.data,
+			threads: 1
+		};
+		hamsters.run(params, function() {
+
+			let arr = params.array;
+			let tempArr = [];
+
+			// eslint-disable
+			for (let i = 1 % 4; i < arr;i += 4) {
+				tempArr[i] = arr[i + 4 * 2];
+			}
+			rtn.data = tempArr;
+			// eslint-enable
+
+		}, function(results) {
+
+			// ctx.putImageData(results, 0, 0);
+
+		});
+		*/
+
+
+
+	}
+
 	drawScene() {
 
 		const self = this;
@@ -202,9 +283,26 @@ class Generator {
 		self.ctx.clearRect(0, 0, self.canvasWidth, self.canvasHeight);
 
 		// Генерим круги(свойства и позиции)
+		self.ticker++;
+
+		if(self.ticker > 150) {
+
+			console.log('setBackground');
+			self.setBackground();
+			self.ticker = self.randomRange(0, 50);
+
+			// Рисуем предыдущую картинку
+		} else if(self.ticker < 40) {
+
+			self.ctx.drawImage(self.canvasTmp, 0, 0);
+		} else {
+
+			self.setBackground({withEffect: false});
+		}
+
 		self.makeCircles();
 		self.moveCircles();
-		self.drawText({source: "xor"});
+		self.drawText({source: "screen"});
 
 	}
 
@@ -217,7 +315,8 @@ class Generator {
 		self.canvasHeight = window.innerHeight;
 
 		self.canvas.width = self.canvasWidth;
-		self.canvas.height = self.canvasHeight;
+		self.canvas.height = self.canvasTmp.height = self.canvasHeight;
+		self.canvas.width = self.canvasTmp.width =  self.canvasWidth;
 
 	}
 
@@ -226,6 +325,7 @@ class Generator {
 		this.drawScene();
 
 		requestAnimationFrame(this.animLoop.bind(this));
+
 
 	}
 

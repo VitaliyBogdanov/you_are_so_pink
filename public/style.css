@@ -17,6 +17,9 @@ body.isBlack {
   top: 0;
   left: 0;
 }
+.circles__canvas.isHidden {
+  display: none;
+}
 .bow {
   position: absolute;
   z-index: 2;
